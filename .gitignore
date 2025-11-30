@@ -18,6 +18,9 @@ db/
 media/
 static/
 
+# Env files
+.env
+
 # OS
 Thumbs.db
 .DS_Store

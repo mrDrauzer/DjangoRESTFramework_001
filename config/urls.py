@@ -4,19 +4,11 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
 from django.http import HttpResponse
-from rest_framework.routers import DefaultRouter
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
     SpectacularRedocView,
 )
-
-from lms.views import CourseViewSet
-from users.views import UserViewSet
-
-router = DefaultRouter()
-router.register(r'courses', CourseViewSet, basename='course')
-router.register(r'users', UserViewSet, basename='user')
 
 def index_view(_request):
     html = """
@@ -57,10 +49,9 @@ urlpatterns = [
     path('', index_view, name='index'),
 
     path('admin/', admin.site.urls),
-    # Единый API root c DRF Router (покажет courses и users на /api/)
-    path('api/', include(router.urls)),
-    # Эндпоинты уроков остаются под /api/lessons/
+    # Подключаем урлы приложений под /api/
     path('api/', include('lms.urls')),
+    path('api/users/', include('users.urls')),
     # Авторизация для браузируемого API (даёт ссылки Login/Logout в правом верхнем углу)
     path('api/auth/', include('rest_framework.urls')),
 

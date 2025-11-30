@@ -1,14 +1,28 @@
 import os
 from pathlib import Path
+from typing import Optional
+
+# Load environment variables from .env for local runs
+# (In Docker, variables come from docker-compose and this is harmless.)
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # library may be missing until requirements are installed
+    load_dotenv = None  # type: ignore
 
 # Base directory
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env before reading any environment variables
+if load_dotenv:
+    env_path = BASE_DIR / '.env'
+    # override=False so real environment vars (e.g., from Docker) have priority
+    load_dotenv(dotenv_path=str(env_path), override=False)
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', '1') in ('1', 'true', 'True')
 
 ALLOWED_HOSTS = [
     '*'
@@ -64,17 +78,47 @@ WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
 # Database
-# Use a dedicated subfolder for SQLite DB to avoid conflicts with any legacy db.sqlite3
-# that may exist in the project root (and potentially have inconsistent migration history).
-DB_DIR = BASE_DIR / 'db'
-os.makedirs(DB_DIR, exist_ok=True)
+# По умолчанию используем PostgreSQL (как указано в задании).
+# Для явного использования SQLite задайте DB_ENGINE=sqlite в переменных окружения.
+DB_ENGINE = os.environ.get('DB_ENGINE', 'postgres').lower()
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': DB_DIR / 'db.sqlite3',
+if DB_ENGINE == 'postgres':
+    # Поддерживаем два набора переменных окружения:
+    # 1) DB_*      — для локального подключения (как в задании)
+    # 2) POSTGRES_* — для docker-compose (уже настроено)
+    pg_name = os.environ.get('DB_NAME') or os.environ.get('POSTGRES_DB', 'postgres')
+    pg_user = os.environ.get('DB_USER') or os.environ.get('POSTGRES_USER', 'postgres')
+    pg_password = os.environ.get('DB_PASSWORD') or os.environ.get('POSTGRES_PASSWORD', '')
+    pg_host = os.environ.get('DB_HOST') or os.environ.get('POSTGRES_HOST', 'localhost')
+    pg_port = os.environ.get('DB_PORT') or os.environ.get('POSTGRES_PORT', 5432)
+
+    # Приведём порт к int при необходимости
+    try:
+        pg_port = int(pg_port)
+    except (TypeError, ValueError):
+        pg_port = 5432
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': pg_name,
+            'USER': pg_user,
+            'PASSWORD': pg_password,
+            'HOST': pg_host,
+            'PORT': pg_port,
+        }
     }
-}
+else:
+    # Use a dedicated subfolder for SQLite DB to avoid conflicts with any legacy db.sqlite3
+    # that may exist in the project root (and potentially have inconsistent migration history).
+    DB_DIR = BASE_DIR / 'db'
+    os.makedirs(DB_DIR, exist_ok=True)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': DB_DIR / 'db.sqlite3',
+        }
+    }
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
