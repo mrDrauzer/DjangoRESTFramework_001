@@ -48,10 +48,18 @@ class LessonSerializer(serializers.ModelSerializer):
 
 class CourseSerializer(serializers.ModelSerializer):
     lessons = LessonSerializer(many=True, read_only=True)
+    lessons_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Course
-        fields = ['id', 'title', 'preview', 'description', 'lessons']
+        fields = ['id', 'title', 'preview', 'description', 'lessons_count', 'lessons']
 
     def validate_preview(self, file_obj):
         return _validate_image_file(file_obj)
+
+    def get_lessons_count(self, obj: Course) -> int:
+        # Используем аннотированное значение, если оно уже добавлено во вью, иначе считаем напрямую
+        count = getattr(obj, 'lessons__count', None)
+        if isinstance(count, int):
+            return count
+        return obj.lessons.count()
