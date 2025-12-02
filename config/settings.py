@@ -145,14 +145,15 @@ AUTH_USER_MODEL = 'users.User'
 
 # DRF базовые настройки
 REST_FRAMEWORK = {
-    # Включаем аутентификацию, чтобы можно было авторизоваться через сессию админки
+    # Аутентификация: JWT (SimpleJWT) + сессии/базовая для админки/браузируемого API
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
     ],
-    # По умолчанию разрешаем только чтение, запись — по явным permissions во вью
+    # По умолчанию все эндпоинты закрыты; явно открываем только auth/registration
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny'
+        'rest_framework.permissions.IsAuthenticated'
     ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_FILTER_BACKENDS': [
@@ -175,4 +176,18 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'Учебный API для курсов и уроков. Кастомный пользователь с авторизацией по email.',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    # Глобальная схема безопасности: Bearer JWT
+    'SECURITY': [
+        {'bearerAuth': []}
+    ],
+    'SECURITY_SCHEMES': {
+        'bearerAuth': {
+            'type': 'http',
+            'scheme': 'bearer',
+            'bearerFormat': 'JWT',
+            'description': 'Вставьте access-токен из SimpleJWT: "Bearer <token>"'
+        }
+    },
 }
+
+# SimpleJWT — используем настройки по умолчанию библиотеки
