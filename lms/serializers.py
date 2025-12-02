@@ -38,9 +38,10 @@ def _validate_image_file(file_obj):
 
 
 class LessonSerializer(serializers.ModelSerializer):
+    owner = serializers.ReadOnlyField(source='owner.id')
     class Meta:
         model = Lesson
-        fields = ['id', 'course', 'title', 'description', 'preview', 'video_url']
+        fields = ['id', 'course', 'title', 'description', 'preview', 'video_url', 'owner']
 
     def validate_preview(self, file_obj):
         return _validate_image_file(file_obj)
@@ -49,10 +50,11 @@ class LessonSerializer(serializers.ModelSerializer):
 class CourseSerializer(serializers.ModelSerializer):
     lessons = LessonSerializer(many=True, read_only=True)
     lessons_count = serializers.SerializerMethodField()
+    owner = serializers.ReadOnlyField(source='owner.id')
 
     class Meta:
         model = Course
-        fields = ['id', 'title', 'preview', 'description', 'lessons_count', 'lessons']
+        fields = ['id', 'title', 'preview', 'description', 'owner', 'lessons_count', 'lessons']
 
     def validate_preview(self, file_obj):
         return _validate_image_file(file_obj)

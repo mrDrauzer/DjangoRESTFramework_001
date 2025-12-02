@@ -9,6 +9,10 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
     SpectacularRedocView,
 )
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
 
 def index_view(_request):
     html = """
@@ -54,6 +58,10 @@ urlpatterns = [
     path('api/users/', include('users.urls')),
     # Авторизация для браузируемого API (даёт ссылки Login/Logout в правом верхнем углу)
     path('api/auth/', include('rest_framework.urls')),
+
+    # JWT авторизация
+    path('api/auth/jwt/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/jwt/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     # OpenAPI схема и документация
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
