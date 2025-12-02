@@ -5,6 +5,7 @@ from .views import (
     LessonListCreateAPIView,
     LessonRetrieveUpdateDestroyAPIView,
     CourseViewSet,
+    SubscriptionToggleAPIView,
 )
 
 router = DefaultRouter()
@@ -16,4 +17,6 @@ urlpatterns = [
     # Эндпоинты уроков (Generic CBV)
     path('lessons/', LessonListCreateAPIView.as_view(), name='lesson-list-create'),
     path('lessons/<int:pk>/', LessonRetrieveUpdateDestroyAPIView.as_view(), name='lesson-detail'),
+    # Управление подпиской на курс
+    path('courses/subscribe/', SubscriptionToggleAPIView.as_view(), name='course-subscribe-toggle'),
 ]

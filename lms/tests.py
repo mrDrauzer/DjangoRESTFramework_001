@@ -132,3 +132,72 @@ class CourseLessonPermissionsTests(APITestCase):
 
         # delete — нельзя
         self.assertEqual(self.client.delete(detail_other).status_code, status.HTTP_403_FORBIDDEN)
+
+
+class ValidatorsAndSubscriptionTests(APITestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(email='user@test.local', password='pass12345')
+        self.client.force_authenticate(self.user)
+        self.course = Course.objects.create(title='Course A', owner=self.user)
+        self.lesson_list_url = reverse('lesson-list-create')
+
+    def test_lesson_video_url_only_youtube_allowed_on_create(self):
+        # Non-youtube should be rejected
+        bad_payload = {
+            'course': self.course.id,
+            'title': 'L1',
+            'video_url': 'https://vimeo.com/12345'
+        }
+        resp_bad = self.client.post(self.lesson_list_url, data=bad_payload, format='json')
+        self.assertEqual(resp_bad.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('video_url', resp_bad.data)
+
+        # YouTube URL should pass
+        ok_payload = {
+            'course': self.course.id,
+            'title': 'L2',
+            'video_url': 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+        }
+        resp_ok = self.client.post(self.lesson_list_url, data=ok_payload, format='json')
+        self.assertEqual(resp_ok.status_code, status.HTTP_201_CREATED)
+
+    def test_lesson_video_url_only_youtube_allowed_on_update(self):
+        # Create without url
+        create_resp = self.client.post(self.lesson_list_url, data={'course': self.course.id, 'title': 'L3'}, format='json')
+        self.assertEqual(create_resp.status_code, status.HTTP_201_CREATED)
+        detail_url = reverse('lesson-detail', args=[create_resp.data['id']])
+
+        # Try to set non-youtube
+        upd_bad = self.client.patch(detail_url, data={'video_url': 'https://example.com/video.mp4'}, format='json')
+        self.assertEqual(upd_bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Set youtube
+        upd_ok = self.client.patch(detail_url, data={'video_url': 'https://youtu.be/abc123'}, format='json')
+        self.assertEqual(upd_ok.status_code, status.HTTP_200_OK)
+
+    def test_subscription_toggle_and_is_subscribed_flag(self):
+        # Initially not subscribed in detail
+        detail_url = reverse('course-detail', args=[self.course.id])
+        detail_resp = self.client.get(detail_url)
+        self.assertEqual(detail_resp.status_code, status.HTTP_200_OK)
+        self.assertFalse(detail_resp.data.get('is_subscribed'))
+
+        # Toggle subscribe
+        toggle_url = reverse('course-subscribe-toggle')
+        resp_add = self.client.post(toggle_url, data={'course_id': self.course.id}, format='json')
+        self.assertEqual(resp_add.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp_add.data.get('message'), 'подписка добавлена')
+
+        # Now flag should be true
+        detail_resp2 = self.client.get(detail_url)
+        self.assertTrue(detail_resp2.data.get('is_subscribed'))
+
+        # Toggle unsubscribe
+        resp_del = self.client.post(toggle_url, data={'course_id': self.course.id}, format='json')
+        self.assertEqual(resp_del.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp_del.data.get('message'), 'подписка удалена')
+
+        # Flag should be false again
+        detail_resp3 = self.client.get(detail_url)
+        self.assertFalse(detail_resp3.data.get('is_subscribed'))

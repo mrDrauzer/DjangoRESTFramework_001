@@ -1,7 +1,8 @@
 from rest_framework import serializers
-from .models import Course, Lesson
+from .models import Course, Lesson, Subscription
 from PIL import Image
 import os
+from .validators import validate_youtube_url
 
 
 MAX_IMAGE_MB = 5
@@ -39,6 +40,7 @@ def _validate_image_file(file_obj):
 
 class LessonSerializer(serializers.ModelSerializer):
     owner = serializers.ReadOnlyField(source='owner.id')
+    video_url = serializers.URLField(required=False, allow_blank=True, validators=[validate_youtube_url])
     class Meta:
         model = Lesson
         fields = ['id', 'course', 'title', 'description', 'preview', 'video_url', 'owner']
@@ -51,10 +53,11 @@ class CourseSerializer(serializers.ModelSerializer):
     lessons = LessonSerializer(many=True, read_only=True)
     lessons_count = serializers.SerializerMethodField()
     owner = serializers.ReadOnlyField(source='owner.id')
+    is_subscribed = serializers.SerializerMethodField()
 
     class Meta:
         model = Course
-        fields = ['id', 'title', 'preview', 'description', 'owner', 'lessons_count', 'lessons']
+        fields = ['id', 'title', 'preview', 'description', 'owner', 'lessons_count', 'is_subscribed', 'lessons']
 
     def validate_preview(self, file_obj):
         return _validate_image_file(file_obj)
@@ -65,3 +68,10 @@ class CourseSerializer(serializers.ModelSerializer):
         if isinstance(count, int):
             return count
         return obj.lessons.count()
+
+    def get_is_subscribed(self, obj: Course) -> bool:
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated:
+            return False
+        return Subscription.objects.filter(user=user, course=obj).exists()
