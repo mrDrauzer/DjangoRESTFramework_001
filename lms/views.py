@@ -24,12 +24,20 @@ class CourseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = super().get_queryset()
-        # Модератор видит все, остальные — только свои объекты
-        if user and user.is_authenticated and (
-            user.is_staff or user.is_superuser or user.groups.filter(name='moderators').exists()
-        ):
-            return qs
-        return qs.filter(owner=user)
+        # Модератор видит всё. Для списка ограничиваем обычных пользователей своими объектами.
+        is_moder = (
+            user
+            and user.is_authenticated
+            and (
+                user.is_staff
+                or user.is_superuser
+                or user.groups.filter(name='moderators').exists()
+            )
+        )
+        if getattr(self, 'action', None) == 'list':
+            return qs if is_moder else qs.filter(owner=user)
+        # Для detail/изменений — полный queryset; ограничения обеспечат пермишены (403 вместо 404)
+        return qs
 
     def get_permissions(self):
         # Разграничение по action:
@@ -86,13 +94,8 @@ class LessonRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        qs = Lesson.objects.all()
-        if user and user.is_authenticated and (
-            user.is_staff or user.is_superuser or user.groups.filter(name='moderators').exists()
-        ):
-            return qs
-        return qs.filter(owner=user)
+        # Для detail-операций возвращаем полный queryset; доступ ограничивается пермишенами
+        return Lesson.objects.all()
 
     def get_permissions(self):
         if self.request.method in ('PUT', 'PATCH'):
