@@ -8,7 +8,8 @@ router = DefaultRouter()
 router.register(r'', UserViewSet, basename='user')
 
 urlpatterns = [
-    path('', include(router.urls)),
+    # Явные пути объявляем ДО include(router), чтобы они не перехватывались как detail у UserViewSet
     path('register/', RegisterAPIView.as_view(), name='register'),
     path('payments/', PaymentListAPIView.as_view(), name='payment-list'),
+    path('', include(router.urls)),
 ]
