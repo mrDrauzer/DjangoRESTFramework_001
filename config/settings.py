@@ -165,6 +165,12 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 10,
 }
 
+# Stripe / внешние сервисы
+STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY', '').strip()
+STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'usd').lower()
+# Базовый адрес сайта/бекенда для формирования success/cancel URL в Stripe Checkout
+SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000').rstrip('/')
+
 # Куда перенаправлять после успешного входа/выхода (чтобы избежать 404 на /accounts/profile/)
 LOGIN_REDIRECT_URL = '/api/'
 LOGOUT_REDIRECT_URL = '/api/'

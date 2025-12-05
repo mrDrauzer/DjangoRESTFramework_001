@@ -62,6 +62,7 @@ class Payment(models.Model):
     class Method(models.TextChoices):
         CASH = 'cash', 'Наличные'
         TRANSFER = 'transfer', 'Перевод на счёт'
+        STRIPE = 'stripe', 'Stripe Checkout'
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='payments',
                              verbose_name='Пользователь')
@@ -72,6 +73,14 @@ class Payment(models.Model):
                                related_name='payments', verbose_name='Отдельно оплаченный урок')
     amount = models.DecimalField('Сумма оплаты', max_digits=10, decimal_places=2)
     method = models.CharField('Способ оплаты', max_length=16, choices=Method.choices)
+
+    # Поля интеграции со Stripe (необязательные)
+    stripe_product_id = models.CharField('Stripe Product ID', max_length=64, blank=True, null=True)
+    stripe_price_id = models.CharField('Stripe Price ID', max_length=64, blank=True, null=True)
+    stripe_session_id = models.CharField('Stripe Session ID', max_length=128, blank=True, null=True)
+    # Ссылки Checkout в Stripe могут быть длиннее стандартного лимита URLField (200)
+    stripe_checkout_url = models.URLField('Ссылка на оплату (Checkout URL)', max_length=2048, blank=True, null=True)
+    stripe_status = models.CharField('Статус в Stripe', max_length=64, blank=True, null=True)
 
     class Meta:
         verbose_name = 'платёж'

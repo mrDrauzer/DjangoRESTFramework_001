@@ -9,6 +9,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
     SpectacularRedocView,
 )
+from drf_spectacular.renderers import OpenApiJsonRenderer, OpenApiYamlRenderer
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -40,9 +41,50 @@ def index_view(_request):
         <li><a href="/api/docs/">Swagger UI</a></li>
         <li><a href="/api/redoc/">ReDoc</a></li>
         <li><a href="/api/schema/">OpenAPI schema (JSON)</a></li>
+        <li><a href="/api/schema/json/">OpenAPI JSON (inline)</a></li>
+        <li><a href="/api/schema/yaml/">OpenAPI YAML</a></li>
         <li><a href="/api/auth/login/">API Login</a> / <a href="/api/auth/logout/">Logout</a></li>
+        <li><a href="/payments/success">Страница успешной оплаты</a> / <a href="/payments/cancel">Отмена оплаты</a></li>
       </ul>
       <p>Подсказка: для авторизации используйте учётную запись суперпользователя, созданную через <code>createsuperuser</code>.</p>
+    </body>
+    </html>
+    """
+    return HttpResponse(html)
+
+
+def payments_success_view(_request):
+    html = """
+    <!doctype html>
+    <html lang="ru">
+    <head>
+      <meta charset="utf-8" />
+      <title>Оплата успешна</title>
+      <style>body{font-family:system-ui,sans-serif;margin:2rem;} a{color:#0a62c9;}</style>
+    </head>
+    <body>
+      <h1>Оплата прошла успешно ✅</h1>
+      <p>Спасибо! Можете вернуться в приложение.</p>
+      <p><a href="/">На главную</a></p>
+    </body>
+    </html>
+    """
+    return HttpResponse(html)
+
+
+def payments_cancel_view(_request):
+    html = """
+    <!doctype html>
+    <html lang="ru">
+    <head>
+      <meta charset="utf-8" />
+      <title>Оплата отменена</title>
+      <style>body{font-family:system-ui,sans-serif;margin:2rem;} a{color:#0a62c9;}</style>
+    </head>
+    <body>
+      <h1>Оплата отменена ❌</h1>
+      <p>Вы можете повторить попытку позже.</p>
+      <p><a href="/">На главную</a></p>
     </body>
     </html>
     """
@@ -65,8 +107,23 @@ urlpatterns = [
 
     # OpenAPI схема и документация
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    # Явные рендеры для удобного просмотра в браузере
+    path(
+        'api/schema/json/',
+        SpectacularAPIView.as_view(renderer_classes=[OpenApiJsonRenderer]),
+        name='schema-json',
+    ),
+    path(
+        'api/schema/yaml/',
+        SpectacularAPIView.as_view(renderer_classes=[OpenApiYamlRenderer]),
+        name='schema-yaml',
+    ),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+
+    # Простые страницы для редиректов Stripe Checkout
+    path('payments/success', payments_success_view, name='payments-success'),
+    path('payments/cancel', payments_cancel_view, name='payments-cancel'),
 ]
 
 if settings.DEBUG:

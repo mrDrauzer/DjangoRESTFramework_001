@@ -23,8 +23,13 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Payment
-        fields = ['id', 'user', 'user_email', 'paid_at', 'course', 'lesson', 'amount', 'method']
-        read_only_fields = ['paid_at']
+        fields = [
+            'id', 'user', 'user_email', 'paid_at', 'course', 'lesson', 'amount', 'method',
+            'stripe_product_id', 'stripe_price_id', 'stripe_session_id',
+            'stripe_checkout_url', 'stripe_status'
+        ]
+        read_only_fields = ['paid_at', 'stripe_product_id', 'stripe_price_id', 'stripe_session_id',
+                            'stripe_checkout_url', 'stripe_status']
 
 
 class UserPaymentSerializer(serializers.ModelSerializer):
@@ -69,3 +74,32 @@ class RegisterSerializer(serializers.ModelSerializer):
         # create_user уже хэширует пароль, передаём его прямо сюда
         password = validated_data.pop('password')
         return get_user_model().objects.create_user(password=password, **validated_data)
+
+
+class PaymentCreateSerializer(serializers.Serializer):
+    course_id = serializers.IntegerField(required=False)
+    lesson_id = serializers.IntegerField(required=False)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+    def validate(self, attrs):
+        course_id = attrs.get('course_id')
+        lesson_id = attrs.get('lesson_id')
+        if bool(course_id) == bool(lesson_id):
+            raise serializers.ValidationError('Нужно указать либо course_id, либо lesson_id (ровно один).')
+        # Ensure object exists
+        if course_id:
+            try:
+                course = Course.objects.get(id=course_id)
+            except Course.DoesNotExist:
+                raise serializers.ValidationError('Указанный курс не найден.')
+            attrs['course'] = course
+        if lesson_id:
+            try:
+                lesson = Lesson.objects.get(id=lesson_id)
+            except Lesson.DoesNotExist:
+                raise serializers.ValidationError('Указанный урок не найден.')
+            attrs['lesson'] = lesson
+        amount = attrs.get('amount')
+        if amount is None or amount <= 0:
+            raise serializers.ValidationError('Сумма должна быть больше 0.')
+        return attrs

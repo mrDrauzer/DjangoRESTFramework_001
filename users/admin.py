@@ -30,7 +30,12 @@ class UserAdmin(BaseUserAdmin):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'paid_at', 'course', 'lesson', 'amount', 'method')
-    list_filter = ('method', 'paid_at')
-    search_fields = ('user__email', 'course__title', 'lesson__title')
+    list_display = (
+        'id', 'user', 'paid_at', 'course', 'lesson', 'amount', 'method', 'stripe_status'
+    )
+    list_filter = ('method', 'paid_at', 'stripe_status')
+    search_fields = ('user__email', 'course__title', 'lesson__title', 'stripe_session_id')
     autocomplete_fields = ('user', 'course', 'lesson')
+    readonly_fields = (
+        'stripe_product_id', 'stripe_price_id', 'stripe_session_id', 'stripe_checkout_url', 'stripe_status'
+    )
