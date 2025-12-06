@@ -5,6 +5,12 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from .models import Course, Lesson
+from .tasks import send_course_update_email
+from django.core import mail
+from django.utils import timezone
+from datetime import timedelta
+from unittest.mock import patch
+from django.test import override_settings
 
 
 class CourseLessonPermissionsTests(APITestCase):
@@ -201,3 +207,74 @@ class ValidatorsAndSubscriptionTests(APITestCase):
         # Flag should be false again
         detail_resp3 = self.client.get(detail_url)
         self.assertFalse(detail_resp3.data.get('is_subscribed'))
+
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEFAULT_FROM_EMAIL='test@example.com'
+)
+class CourseUpdateEmailTasksTests(APITestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(email='notify@test.local', password='pass12345')
+        # Дополнительные подписчики
+        self.user2 = User.objects.create_user(email='u2@test.local', password='pass12345')
+        self.user3 = User.objects.create_user(email='u3@test.local', password='pass12345')
+        # Курс и подписки
+        self.course = Course.objects.create(title='Notify course', owner=self.user)
+        from .models import Subscription
+        Subscription.objects.create(user=self.user2, course=self.course)
+        Subscription.objects.create(user=self.user3, course=self.course)
+
+    def test_send_course_update_email_for_course_update_sends_to_all_subscribers(self):
+        # Очищаем почтовый ящик
+        mail.outbox.clear()
+        sent = send_course_update_email(self.course.id, updated_kind='course')
+        # Должно быть одно группое письмо (по умолчанию send_mail отправляет одним письмом на список)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('Обновления курса', mail.outbox[0].subject)
+        # Оба подписчика получили
+        self.assertEqual(sent, 2)
+
+    def test_send_course_update_email_for_lesson_update_throttled_by_course_updated_at(self):
+        mail.outbox.clear()
+        # 1) Если курс обновлялся недавно (<4ч), письма не должно быть
+        Course.objects.filter(pk=self.course.pk).update(updated_at=timezone.now())
+        sent_recent = send_course_update_email(self.course.id, updated_kind='lesson')
+        self.assertEqual(sent_recent, 0)
+        self.assertEqual(len(mail.outbox), 0)
+
+        # 2) Если прошло больше 4 часов — письмо уйдёт
+        earlier = timezone.now() - timedelta(hours=5)
+        Course.objects.filter(pk=self.course.pk).update(updated_at=earlier)
+        sent_ok = send_course_update_email(self.course.id, updated_kind='lesson')
+        self.assertEqual(sent_ok, 2)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_views_trigger_tasks_on_update(self):
+        # Проверим, что контроллеры вызывают задачу с правильными аргументами
+        self.client.force_authenticate(self.user)
+        # Создадим урок
+        list_url = reverse('lesson-list-create')
+        resp = self.client.post(list_url, data={'course': self.course.id, 'title': 'L1'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        lesson_id = resp.data['id']
+
+        # PATCH курса вызывает updated_kind='course'
+        course_detail = reverse('course-detail', args=[self.course.id])
+        with patch('lms.views.send_course_update_email.delay') as m_delay:
+            resp_upd_course = self.client.patch(course_detail, data={'description': 'upd'}, format='json')
+            self.assertEqual(resp_upd_course.status_code, status.HTTP_200_OK)
+            m_delay.assert_called_with(self.course.id, updated_kind='course')
+
+        # PATCH урока вызывает updated_kind='lesson' и обновляет updated_at у курса
+        lesson_detail = reverse('lesson-detail', args=[lesson_id])
+        with patch('lms.views.send_course_update_email.delay') as m_delay2:
+            # Зафиксируем текущее значение updated_at
+            before = Course.objects.get(pk=self.course.pk).updated_at
+            resp_upd_lesson = self.client.patch(lesson_detail, data={'title': 'upd2'}, format='json')
+            self.assertEqual(resp_upd_lesson.status_code, status.HTTP_200_OK)
+            m_delay2.assert_called_with(self.course.id, updated_kind='lesson')
+            # После обновления должен измениться updated_at (стать позже либо отличаться)
+            after = Course.objects.get(pk=self.course.pk).updated_at
+            self.assertNotEqual(before, after)

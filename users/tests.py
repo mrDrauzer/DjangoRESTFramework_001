@@ -4,6 +4,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from unittest.mock import patch
+from django.utils import timezone
+from datetime import timedelta
 
 from lms.models import Course, Lesson
 from .models import Payment
@@ -145,3 +147,40 @@ class StripePaymentTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         p.refresh_from_db()
         self.assertEqual(p.stripe_status, 'complete')
+
+
+class UserDeactivationTaskTests(APITestCase):
+    def setUp(self):
+        User = get_user_model()
+        # Users to test deactivation logic
+        now = timezone.now()
+        self.active_recent = User.objects.create_user(email='recent@test.local', password='pass12345')
+        self.active_recent.last_login = now - timedelta(days=5)
+        self.active_recent.save(update_fields=['last_login'])
+
+        self.active_old = User.objects.create_user(email='old@test.local', password='pass12345')
+        self.active_old.last_login = now - timedelta(days=60)
+        self.active_old.save(update_fields=['last_login'])
+
+        self.active_never = User.objects.create_user(email='never@test.local', password='pass12345')
+        # last_login remains None
+
+        self.inactive_old = User.objects.create_user(email='inactive@test.local', password='pass12345', is_active=False)
+        self.inactive_old.last_login = now - timedelta(days=90)
+        self.inactive_old.save(update_fields=['last_login'])
+
+    def test_deactivate_inactive_users_task(self):
+        from .tasks import deactivate_inactive_users
+        updated_count = deactivate_inactive_users()
+        # Should deactivate: active_old and active_never (2 users)
+        self.assertEqual(updated_count, 2)
+
+        # Refresh from DB
+        for u in [self.active_recent, self.active_old, self.active_never, self.inactive_old]:
+            u.refresh_from_db()
+
+        self.assertTrue(self.active_recent.is_active)
+        self.assertFalse(self.active_old.is_active)
+        self.assertFalse(self.active_never.is_active)
+        # Already inactive remains inactive
+        self.assertFalse(self.inactive_old.is_active)

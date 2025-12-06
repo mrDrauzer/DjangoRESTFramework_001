@@ -8,6 +8,15 @@ python-dotenv>=1.0
 PyJWT>=2.9
 djangorestframework-simplejwt>=5.3
 coverage>=7.6
+pytest>=8.3
+pytest-django>=4.9
+pytest-html>=4.1
+pytest-cov>=5.0
 
 # Payments
 stripe>=11.2
+
+# Async tasks
+celery>=5.3
+redis>=5.0
+django-celery-beat>=2.6
