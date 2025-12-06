@@ -3,6 +3,7 @@ from django.contrib.auth.models import Group
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
+from unittest.mock import patch
 
 from lms.models import Course, Lesson
 from .models import Payment
@@ -79,3 +80,68 @@ class UsersProfilesAndPaymentsTests(APITestCase):
         self.assertEqual(resp_m.status_code, status.HTTP_200_OK)
         ids_m = {p['id'] for p in resp_m.data['results']}
         self.assertTrue({self.p_u1_1.id, self.p_u1_2.id, self.p_u2_1.id}.issubset(ids_m))
+
+
+class StripePaymentTests(APITestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(email='stripe@test.local', password='pass12345')
+        self.course = Course.objects.create(title='Stripe Course', owner=self.user)
+        self.create_url = reverse('payment-create')
+
+    def auth(self):
+        self.client.force_authenticate(self.user)
+
+    @patch('users.stripe_service.create_checkout_session')
+    @patch('users.stripe_service.create_price')
+    @patch('users.stripe_service.create_product')
+    def test_create_payment_success(self, m_product, m_price, m_session):
+        self.auth()
+        m_product.return_value = {'id': 'prod_test_123'}
+        m_price.return_value = {'id': 'price_test_456'}
+        m_session.return_value = {'id': 'cs_test_789', 'url': 'https://checkout.stripe.com/pay/test', 'status': 'open'}
+
+        resp = self.client.post(self.create_url, data={
+            'course_id': self.course.id,
+            'amount': '1999.00'
+        }, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertIn('stripe_checkout_url', resp.data)
+        self.assertTrue(str(resp.data['stripe_checkout_url']).startswith('http'))
+
+        # Payment object persisted with Stripe fields
+        p = Payment.objects.get(id=resp.data['id'])
+        self.assertEqual(p.method, Payment.Method.STRIPE)
+        self.assertEqual(p.stripe_product_id, 'prod_test_123')
+        self.assertEqual(p.stripe_price_id, 'price_test_456')
+        self.assertEqual(p.stripe_session_id, 'cs_test_789')
+        self.assertEqual(p.stripe_status, 'open')
+
+    def test_create_payment_amount_must_be_positive(self):
+        self.auth()
+        resp = self.client.post(self.create_url, data={
+            'course_id': self.course.id,
+            'amount': '0'
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch('users.stripe_service.retrieve_session')
+    def test_payment_status_updates(self, m_retrieve):
+        self.auth()
+        # Prepare a payment with existing session id
+        p = Payment.objects.create(
+            user=self.user,
+            course=self.course,
+            amount=100,
+            method=Payment.Method.STRIPE,
+            stripe_session_id='cs_test_abc',
+            stripe_status='open',
+        )
+        url = reverse('payment-status', args=[p.id])
+        m_retrieve.return_value = {'id': 'cs_test_abc', 'status': 'complete'}
+
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        p.refresh_from_db()
+        self.assertEqual(p.stripe_status, 'complete')
