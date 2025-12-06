@@ -14,6 +14,9 @@ class Course(models.Model):
         null=True,
         blank=True,
     )
+    # Метки времени для уведомлений/обновлений
+    updated_at = models.DateTimeField('Обновлено', auto_now=True)
+    last_notified_at = models.DateTimeField('Последнее уведомление', null=True, blank=True)
 
     class Meta:
         verbose_name = 'курс'
