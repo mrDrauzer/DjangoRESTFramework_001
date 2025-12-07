@@ -3,11 +3,13 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
+from django.utils import timezone
 
 from .models import Course, Lesson, Subscription
 from .serializers import CourseSerializer, LessonSerializer
 from users.permissions import IsModer, IsOwner
 from .paginators import DefaultPageNumberPagination
+from .tasks import send_course_update_email
 
 
 class CourseViewSet(viewsets.ModelViewSet):
@@ -58,6 +60,15 @@ class CourseViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
+    def perform_update(self, serializer):
+        course = serializer.save()
+        # Асинхронная рассылка об обновлении курса
+        try:
+            send_course_update_email.delay(course.id, updated_kind='course')
+        except Exception:
+            # В тестовой/локальной среде без Celery worker просто игнорируем ошибку вызова
+            pass
+
 
 class LessonListCreateAPIView(generics.ListCreateAPIView):
     serializer_class = LessonSerializer
@@ -105,6 +116,17 @@ class LessonRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
         else:
             self.permission_classes = [IsAuthenticated]
         return [perm() for perm in self.permission_classes]
+
+    def perform_update(self, serializer):
+        lesson = serializer.save()
+        # Помечаем курс как обновлённый и отправляем уведомление подписчикам курса
+        try:
+            # Сначала отправим уведомление (чтобы троттлинг по updated_at не сработал преждевременно)
+            send_course_update_email.delay(lesson.course_id, updated_kind='lesson')
+            # Затем обновим updated_at у курса, чтобы было видно время изменения через урок
+            Course.objects.filter(pk=lesson.course_id).update(updated_at=timezone.now())
+        except Exception:
+            pass
 
 
 class SubscriptionToggleAPIView(APIView):

@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'drf_spectacular',
     'django_filters',
+    'django_celery_beat',
 
     # Local apps
     'users',
@@ -129,7 +130,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = 'ru-ru'
-TIME_ZONE = 'UTC'
+TIME_ZONE = os.environ.get('TIME_ZONE', 'UTC')
 USE_I18N = True
 USE_TZ = True
 
@@ -197,3 +198,40 @@ SPECTACULAR_SETTINGS = {
 }
 
 # SimpleJWT — используем настройки по умолчанию библиотеки
+
+# Email (по умолчанию — консольный backend для разработки)
+EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '0') or 0) or None
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', '0') in ('1', 'true', 'True')
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', '0') in ('1', 'true', 'True')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'no-reply@example.com')
+
+# Celery/Redis
+REDIS_URL = os.environ.get('REDIS_URL')
+if not REDIS_URL:
+    REDIS_HOST = os.environ.get('REDIS_HOST', 'redis')
+    REDIS_PORT = os.environ.get('REDIS_PORT', '6379')
+    REDIS_DB = os.environ.get('REDIS_DB', '0')
+    REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
+CELERY_TASK_ALWAYS_EAGER = os.environ.get('CELERY_TASK_ALWAYS_EAGER', '0') in ('1', 'true', 'True')
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = USE_TZ
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+# Celery Beat: периодическая задача деактивации неактивных пользователей
+from datetime import timedelta  # noqa: E402
+CELERY_BEAT_SCHEDULE = {
+    'deactivate-inactive-users-daily': {
+        'task': 'users.tasks.deactivate_inactive_users',
+        'schedule': timedelta(hours=24),  # ежедневно
+        'options': {'expires': 60 * 60},
+    },
+}
