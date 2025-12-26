@@ -1,0 +1,67 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "9.x" },
+    { "type": "panel", "id": "graph", "name": "Graph", "version": "9.x" }
+  ],
+  "title": "Django LMS — Overview (django-prometheus)",
+  "timezone": "browser",
+  "panels": [
+    {
+      "type": "graph",
+      "title": "HTTP requests per minute",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(django_http_requests_total_by_method_total[1m]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "lines": true,
+      "fill": 1
+    },
+    {
+      "type": "graph",
+      "title": "Request latency p50/p95 (seconds)",
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(django_http_requests_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(django_http_requests_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "DB queries per second",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(django_db_new_connections_total[1m])",
+          "legendFormat": "new connections/s"
+        },
+        {
+          "expr": "rate(django_db_execute_total[1m])",
+          "legendFormat": "executes/s"
+        }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Celery tasks per minute",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(celery_tasks_total[1m])) by (name)",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 37,
+  "version": 1
+}
