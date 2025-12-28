@@ -4,6 +4,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
 from django.http import HttpResponse
+from django.db import connections
+from django.db.utils import OperationalError
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
@@ -90,6 +92,21 @@ def payments_cancel_view(_request):
     """
     return HttpResponse(html)
 
+
+def healthz_view(_request):
+    return HttpResponse("ok", content_type="text/plain")
+
+
+def readyz_view(_request):
+    # Simple readiness: check DB connection
+    try:
+        connection = connections['default']
+        cursor = connection.cursor()
+        cursor.execute('SELECT 1;')
+    except OperationalError:
+        return HttpResponse('db:unavailable', status=503, content_type='text/plain')
+    return HttpResponse('ready', content_type='text/plain')
+
 urlpatterns = [
     # Стартовая страница со ссылками
     path('', index_view, name='index'),
@@ -124,7 +141,18 @@ urlpatterns = [
     # Простые страницы для редиректов Stripe Checkout
     path('payments/success', payments_success_view, name='payments-success'),
     path('payments/cancel', payments_cancel_view, name='payments-cancel'),
+    # Health endpoints
+    path('healthz', healthz_view, name='healthz'),
+    path('readyz', readyz_view, name='readyz'),
 ]
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# Expose Prometheus metrics if enabled
+try:
+    if 'django_prometheus' in settings.INSTALLED_APPS:
+        urlpatterns += [path('', include('django_prometheus.urls'))]
+except Exception:
+    # If django_prometheus isn't installed, just skip adding metrics URLs
+    pass

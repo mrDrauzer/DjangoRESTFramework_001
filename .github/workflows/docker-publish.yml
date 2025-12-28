@@ -1,0 +1,234 @@
+name: Docker Publish
+
+on:
+  push:
+    branches: [ "develop", "main", "master" ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ "develop" ]
+
+env:
+  REGISTRY: ${{ secrets.REGISTRY }}
+  IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+  REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+
+jobs:
+  build:
+    name: Build (multi-arch) and optionally publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      primary_tag: ${{ steps.pick_tag.outputs.primary_tag }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image name
+        id: meta_name
+        run: |
+          # If IMAGE_NAME secret is not set, default to <owner>/<repo> lowercased
+          IMAGE_NAME="${IMAGE_NAME}"
+          if [ -z "$IMAGE_NAME" ]; then
+            IMAGE_NAME="${GITHUB_REPOSITORY,,}"
+          fi
+          echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Docker meta (tags/labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ steps.meta_name.outputs.image_name }}
+            ${{ env.REGISTRY != '' && format('{0}/{1}', env.REGISTRY, steps.meta_name.outputs.image_name) || '' }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.source=${{ github.repositoryUrl }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.run_id }}
+
+      - name: Login to registry (if secrets provided)
+        if: env.REGISTRY != '' && env.REGISTRY_USER != '' && env.REGISTRY_PASSWORD != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ (github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/develop') || startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/master') || startsWith(github.ref, 'refs/tags/'))) && 'true' || 'false' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            SENTRY_RELEASE=${{ github.sha }}
+
+      - name: Pick primary tag
+        id: pick_tag
+        run: |
+          # pick the first tag from docker/metadata-action output (used later for image scanning)
+          first_tag="$(echo "${{ steps.meta.outputs.tags }}" | head -n1)"
+          echo "primary_tag=$first_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Install Cosign
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/develop') || startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/master') || startsWith(github.ref, 'refs/tags/'))
+        uses: sigstore/cosign-installer@v3.5.0
+
+      - name: Sign published images with Cosign (keyless OIDC)
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/develop') || startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/master') || startsWith(github.ref, 'refs/tags/')) && steps.build.outputs.digest != ''
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Signing images at digest: $DIGEST"
+          echo "${{ steps.meta.outputs.tags }}" | while read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "cosign sign --yes \"$tag@$DIGEST\""
+            cosign sign --yes "$tag@$DIGEST"
+          done
+
+      - name: Generate SBOM (Syft) for repository (CycloneDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          artifact-name: sbom-cyclonedx.json
+          format: cyclonedx-json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom-cyclonedx.json
+          if-no-files-found: error
+
+      - name: Export image tar (for Trivy if no push)
+        if: steps.meta.outputs.tags == '' || contains(steps.meta.outputs.tags, '\n') == false
+        run: |
+          # Export the first local tag (sha based)
+          docker image ls -a
+          ID=$(docker images --format '{{.ID}}' | head -n1)
+          if [ -n "$ID" ]; then
+            docker save "$ID" -o image.tar
+          fi
+        continue-on-error: true
+
+      - name: Upload image tar artifact (optional)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-tar
+          path: image.tar
+          if-no-files-found: ignore
+
+  trivy:
+    name: Trivy scan
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download image tar (if available)
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-tar
+          path: .
+        continue-on-error: true
+
+      - name: Load image (if tar present)
+        run: |
+          if [ -f image.tar ]; then
+            docker load -i image.tar || true
+          fi
+        shell: bash
+
+      - name: Run Trivy (filesystem)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Also run Trivy summary (table)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          output: 'trivy-summary.txt'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+
+  trivy-image:
+    name: Trivy image scan (published image)
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: ${{ needs.build.outputs.primary_tag != '' && (github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/develop') || startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/master') || startsWith(github.ref, 'refs/tags/'))) }}
+    steps:
+      - name: Run Trivy (image, SARIF)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ needs.build.outputs.primary_tag }}
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+
+      - name: Upload Trivy image SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-image-results.sarif'
+
+      - name: Run Trivy (image, summary)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ needs.build.outputs.primary_tag }}
+          format: 'table'
+          output: 'trivy-image-summary.txt'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+
+      - name: Upload Trivy image summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-summary
+          path: trivy-image-summary.txt
+
+      - name: Upload Trivy summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-summary
+          path: trivy-summary.txt

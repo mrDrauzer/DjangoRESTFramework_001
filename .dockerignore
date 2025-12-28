@@ -1,28 +1,22 @@
-# Python
+.git
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.so
 .Python
 env/
 venv/
 .venv/
-
-# IDEs
 .idea/
 .vscode/
-
-# Django
-db.sqlite3
+*.sqlite3
 db/
 media/
 static/
 reports/
-backups/
-
-# Env files
-.env
-
-# OS
-Thumbs.db
-.DS_Store
+htmlcov/
+*.log
+*.tmp
+*.swp
+*.DS_Store

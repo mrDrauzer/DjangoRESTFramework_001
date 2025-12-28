@@ -1,0 +1,22 @@
+{
+  "name": "DRF LMS Dev",
+  "dockerComposeFile": [
+    "../docker-compose.yaml"
+  ],
+  "service": "web",
+  "workspaceFolder": "/app",
+  "runServices": ["db", "redis", "web"],
+  "shutdownAction": "stopCompose",
+  "overrideCommand": false,
+  "forwardPorts": [8000, 5432, 6379, 5050, 5555],
+  "postCreateCommand": "pip install -q pre-commit && pre-commit install || true",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  }
+}

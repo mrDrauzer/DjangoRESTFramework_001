@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [ "develop", "main", "master" ]
+  pull_request:
+    branches: [ "develop" ]
+
+jobs:
+  lint:
+    name: Lint (ruff, black, isort)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install linters
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff==0.6.9 black==24.10.0 isort==5.13.2
+      - name: Run ruff
+        run: ruff check .
+      - name: Run black --check
+        run: black --check .
+      - name: Run isort --check
+        run: isort --profile black --check-only .
+
+  tests:
+    name: Run Django tests (SQLite)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests with pytest (SQLite)
+        env:
+          DB_ENGINE: sqlite
+        run: |
+          python -m pytest -v --maxfail=1 --html=reports/tests/report.html --self-contained-html
+
+      - name: Upload test report artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-report
+          path: reports/tests/report.html
+          if-no-files-found: warn
+
+  smoke:
+    name: Dockerized smoke (staging compose)
+    runs-on: ubuntu-latest
+    needs: [tests]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare .env for compose
+        run: cp .env.example .env
+
+      - name: Build and start staging stack
+        run: docker compose -f docker-compose.staging.yml up -d --build
+
+      - name: Wait and run smoke checks
+        shell: bash
+        run: |
+          chmod +x scripts/smoke.sh || true
+          for i in {1..60}; do
+            if scripts/smoke.sh http://localhost:8000; then
+              echo "Smoke passed"; exit 0;
+            fi
+            echo "[smoke] retry $i/60 ..."; sleep 5;
+          done
+          echo "Smoke failed after retries"; exit 1
+
+      - name: Show docker compose ps
+        if: always()
+        run: docker compose -f docker-compose.staging.yml ps
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.staging.yml logs --no-color > compose_logs.txt 2>&1 || true
+          tail -n +1 compose_logs.txt || true
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f docker-compose.staging.yml down
+
+  security:
+    name: Security audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+      - name: Run pip-audit against requirements
+        run: pip-audit -r requirements.txt --strict
+
+  bandit:
+    name: Static security analysis (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Bandit
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit
+      - name: Run Bandit
+        run: bandit -q -r . -x "tests,venv,.venv,env,htmlcov,reports,db,.git,.github"

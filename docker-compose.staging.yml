@@ -1,0 +1,52 @@
+services:
+  db:
+    extends:
+      file: docker-compose.yaml
+      service: db
+
+  redis:
+    extends:
+      file: docker-compose.yaml
+      service: redis
+
+  web:
+    build: .
+    container_name: drf_lms_web_staging
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      # Используем Postgres/Redis из docker-сети
+      DB_ENGINE: postgres
+      DB_HOST: db
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Отключаем DEBUG в staging
+      DEBUG: "0"
+    command: ["/entrypoint.prod.sh"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - static_staging:/app/static
+      - media_staging:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz').read()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    # Allow graceful shutdown during staging restarts
+    stop_grace_period: 45s
+    restart: unless-stopped
+
+volumes:
+  static_staging:
+  media_staging:
+  postgres_data:

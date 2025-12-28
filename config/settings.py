@@ -24,9 +24,19 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', '1') in ('1', 'true', 'True')
 
-ALLOWED_HOSTS = [
-    '*'
-]
+# Hosts and CSRF trusted origins
+def _split_env(value: str | None) -> list[str]:
+    if not value:
+        return []
+    # split by comma/space and strip
+    parts = [p.strip() for p in value.replace('\n', ',').replace(' ', ',').split(',')]
+    return [p for p in parts if p]
+
+ALLOWED_HOSTS_ENV = os.environ.get('ALLOWED_HOSTS')
+ALLOWED_HOSTS = _split_env(ALLOWED_HOSTS_ENV) or ['*']
+
+CSRF_TRUSTED_ORIGINS_ENV = os.environ.get('CSRF_TRUSTED_ORIGINS')
+CSRF_TRUSTED_ORIGINS = _split_env(CSRF_TRUSTED_ORIGINS_ENV)
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -47,7 +57,29 @@ INSTALLED_APPS = [
     'lms',
 ]
 
+# Optional: Prometheus metrics (enabled via PROMETHEUS_ENABLED=1)
+PROMETHEUS_ENABLED = os.environ.get('PROMETHEUS_ENABLED', '0') in ('1', 'true', 'True')
+if PROMETHEUS_ENABLED:
+    INSTALLED_APPS.insert(0, 'django_prometheus')
+
+# Optional: CORS (enabled via CORS_ENABLED=1)
+CORS_ENABLED = os.environ.get('CORS_ENABLED', '0') in ('1', 'true', 'True')
+if CORS_ENABLED:
+    INSTALLED_APPS.append('corsheaders')
+
 MIDDLEWARE = [
+    # Prometheus before middleware (if enabled)
+    *(
+        ['django_prometheus.middleware.PrometheusBeforeMiddleware']
+        if PROMETHEUS_ENABLED else []
+    ),
+
+    # CORS middleware should be high in the stack, before CommonMiddleware
+    *(
+        ['corsheaders.middleware.CorsMiddleware']
+        if CORS_ENABLED else []
+    ),
+
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -55,6 +87,11 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Prometheus after middleware (if enabled)
+    *(
+        ['django_prometheus.middleware.PrometheusAfterMiddleware']
+        if PROMETHEUS_ENABLED else []
+    ),
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -84,14 +121,16 @@ ASGI_APPLICATION = 'config.asgi.application'
 DB_ENGINE = os.environ.get('DB_ENGINE', 'postgres').lower()
 
 if DB_ENGINE == 'postgres':
-    # Поддерживаем два набора переменных окружения:
-    # 1) DB_*      — для локального подключения (как в задании)
-    # 2) POSTGRES_* — для docker-compose (уже настроено)
-    pg_name = os.environ.get('DB_NAME') or os.environ.get('POSTGRES_DB', 'postgres')
-    pg_user = os.environ.get('DB_USER') or os.environ.get('POSTGRES_USER', 'postgres')
-    pg_password = os.environ.get('DB_PASSWORD') or os.environ.get('POSTGRES_PASSWORD', '')
-    pg_host = os.environ.get('DB_HOST') or os.environ.get('POSTGRES_HOST', 'localhost')
-    pg_port = os.environ.get('DB_PORT') or os.environ.get('POSTGRES_PORT', 5432)
+    # Поддерживаем два набора переменных окружения и отдаём приоритет Docker-набору:
+    # 1) POSTGRES_* — для docker-compose (сервис БД в одной сети)
+    # 2) DB_*       — для локального нативного Postgres (если не используется Docker)
+    # Это предотвращает ситуации, когда в .env остались DB_HOST=127.0.0.1,
+    # и контейнеры пытаются подключиться к localhost вместо сервиса "db".
+    pg_name = os.environ.get('POSTGRES_DB') or os.environ.get('DB_NAME', 'postgres')
+    pg_user = os.environ.get('POSTGRES_USER') or os.environ.get('DB_USER', 'postgres')
+    pg_password = os.environ.get('POSTGRES_PASSWORD') or os.environ.get('DB_PASSWORD', '')
+    pg_host = os.environ.get('POSTGRES_HOST') or os.environ.get('DB_HOST', 'localhost')
+    pg_port = os.environ.get('POSTGRES_PORT') or os.environ.get('DB_PORT', 5432)
 
     # Приведём порт к int при необходимости
     try:
@@ -99,9 +138,14 @@ if DB_ENGINE == 'postgres':
     except (TypeError, ValueError):
         pg_port = 5432
 
+    db_engine_path = 'django.db.backends.postgresql'
+    if PROMETHEUS_ENABLED:
+        # Use instrumented backend to export DB metrics
+        db_engine_path = 'django_prometheus.db.backends.postgresql'
+
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.postgresql',
+            'ENGINE': db_engine_path,
             'NAME': pg_name,
             'USER': pg_user,
             'PASSWORD': pg_password,
@@ -166,6 +210,22 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 10,
 }
 
+# DRF throttling (optional, enabled via THROTTLE_ENABLED=1)
+THROTTLE_ENABLED = os.environ.get('THROTTLE_ENABLED', '0') in ('1', 'true', 'True')
+if THROTTLE_ENABLED:
+    from rest_framework.throttling import AnonRateThrottle, UserRateThrottle  # type: ignore
+
+    REST_FRAMEWORK |= {
+        'DEFAULT_THROTTLE_CLASSES': [
+            'rest_framework.throttling.AnonRateThrottle',
+            'rest_framework.throttling.UserRateThrottle',
+        ],
+        'DEFAULT_THROTTLE_RATES': {
+            'anon': os.environ.get('THROTTLE_ANON', '100/hour'),
+            'user': os.environ.get('THROTTLE_USER', '1000/hour'),
+        },
+    }
+
 # Stripe / внешние сервисы
 STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY', '').strip()
 STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'usd').lower()
@@ -226,12 +286,146 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 
+# Caching (optional, enabled via CACHE_ENABLED=1). Uses Redis if enabled.
+CACHE_ENABLED = os.environ.get('CACHE_ENABLED', '0') in ('1', 'true', 'True')
+CACHE_TTL = int(os.environ.get('CACHE_TTL', '300') or 300)
+
+if CACHE_ENABLED:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'TIMEOUT': CACHE_TTL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            },
+        }
+    }
+else:
+    # Safe default local-memory cache for dev/tests
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-drf-lms',
+        }
+    }
+
 # Celery Beat: периодическая задача деактивации неактивных пользователей
-from datetime import timedelta  # noqa: E402
-CELERY_BEAT_SCHEDULE = {
-    'deactivate-inactive-users-daily': {
-        'task': 'users.tasks.deactivate_inactive_users',
-        'schedule': timedelta(hours=24),  # ежедневно
-        'options': {'expires': 60 * 60},
+# Режим расписания можно переключать через переменную окружения CELERY_SCHEDULE_MODE
+#   - "timedelta" (по умолчанию) — каждые 24 часа
+#   - "crontab" — ежедневный запуск в указанное время (CRON_HOUR/CRON_MINUTE)
+SCHEDULE_MODE = os.environ.get('CELERY_SCHEDULE_MODE', 'timedelta').lower()
+if SCHEDULE_MODE == 'crontab':
+    try:
+        from celery.schedules import crontab  # type: ignore
+    except Exception:
+        crontab = None  # type: ignore
+
+    cron_minute = str(os.environ.get('CRON_MINUTE', '0'))
+    cron_hour = str(os.environ.get('CRON_HOUR', '3'))  # по умолчанию 03:00
+    if crontab:
+        beat_schedule_value = crontab(minute=cron_minute, hour=cron_hour, timezone=TIME_ZONE)
+    else:
+        # Fallback на timedelta, если по какой-то причине celery.schedules недоступен
+        from datetime import timedelta  # type: ignore
+        beat_schedule_value = timedelta(hours=24)
+else:
+    from datetime import timedelta  # type: ignore
+    beat_schedule_value = timedelta(hours=24)  # ежедневно
+
+# Celery Beat scheduler selection
+# If CELERY_USE_DB_SCHEDULER=1, use django-celery-beat DatabaseScheduler and ignore in-code schedule.
+USE_DB_SCHEDULER = os.environ.get('CELERY_USE_DB_SCHEDULER', '0') in ('1', 'true', 'True')
+
+if USE_DB_SCHEDULER:
+    CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+    CELERY_BEAT_SCHEDULE: dict = {}
+else:
+    CELERY_BEAT_SCHEDULE = {
+        'deactivate-inactive-users-daily': {
+            'task': 'users.tasks.deactivate_inactive_users',
+            'schedule': beat_schedule_value,
+            'options': {'expires': 60 * 60},
+        },
+    }
+
+# Production security settings (enabled when DEBUG is False)
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True  # legacy header, harmless
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    # HSTS (can be tuned via env); by default keep conservative to avoid issues in dev
+    SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '0') or 0)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = os.environ.get('SECURE_HSTS_INCLUDE_SUBDOMAINS', '0') in ('1', 'true', 'True')
+    SECURE_HSTS_PRELOAD = os.environ.get('SECURE_HSTS_PRELOAD', '0') in ('1', 'true', 'True')
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', '0') in ('1', 'true', 'True')
+    # Set when behind proxy that sets X-Forwarded-Proto
+    if os.environ.get('SECURE_PROXY_SSL_HEADER', ''):
+        SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Logging configuration
+# Set LOG_FORMAT=json to enable JSON logs (python-json-logger), otherwise plain text.
+LOG_FORMAT = os.environ.get('LOG_FORMAT', 'plain').lower()
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'plain': {
+            'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
+        },
+        'json': {
+            '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',  # type: ignore
+            'fmt': '%(asctime)s %(levelname)s %(name)s %(message)s %(pathname)s %(lineno)s %(process)s %(thread)s',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'json' if LOG_FORMAT == 'json' else 'plain',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO' if not DEBUG else 'DEBUG',
     },
 }
+
+# CORS configuration (only if enabled)
+if CORS_ENABLED:
+    # When CORS_ALLOW_ALL_ORIGINS=1, allow all origins (useful for dev)
+    CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', '0') in ('1', 'true', 'True')
+    CORS_ALLOW_CREDENTIALS = os.environ.get('CORS_ALLOW_CREDENTIALS', '0') in ('1', 'true', 'True')
+    CORS_ALLOWED_ORIGINS = _split_env(os.environ.get('CORS_ALLOWED_ORIGINS'))
+    # Optionally allow custom headers/methods via env, else keep defaults of the package
+    _custom_headers = _split_env(os.environ.get('CORS_ALLOW_HEADERS'))
+    if _custom_headers:
+        CORS_ALLOW_HEADERS = _custom_headers  # type: ignore
+    _custom_methods = _split_env(os.environ.get('CORS_ALLOW_METHODS'))
+    if _custom_methods:
+        CORS_ALLOW_METHODS = _custom_methods  # type: ignore
+
+# Optional: Sentry error tracking and performance monitoring
+SENTRY_DSN = os.environ.get('SENTRY_DSN', '').strip()
+if SENTRY_DSN:
+    try:  # pragma: no cover - optional dependency
+        import sentry_sdk  # type: ignore
+        from sentry_sdk.integrations.django import DjangoIntegration  # type: ignore
+        from sentry_sdk.integrations.celery import CeleryIntegration  # type: ignore
+
+        traces_sample_rate = float(os.environ.get('SENTRY_TRACES_SAMPLE_RATE', '0') or 0)
+        profiles_sample_rate = float(os.environ.get('SENTRY_PROFILES_SAMPLE_RATE', '0') or 0)
+
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[DjangoIntegration(), CeleryIntegration()],
+            traces_sample_rate=traces_sample_rate,
+            profiles_sample_rate=profiles_sample_rate,
+            send_default_pii=False,
+            environment=os.environ.get('SENTRY_ENVIRONMENT', 'development' if DEBUG else 'production'),
+            release=os.environ.get('SENTRY_RELEASE'),
+        )
+    except Exception:
+        # If Sentry is not installed or fails to init, continue without it
+        pass
