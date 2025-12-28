@@ -11,6 +11,10 @@
 - Swagger: `GET /api/docs/`
 - Celery: `docker compose logs -f celery-worker`
 
+### Данные деплоя
+- Хост/домен: `http(s)://<host>`
+- Health-check prod: `http(s)://<host>/readyz` (ожидается HTTP 200)
+
 ### Скриншоты/логи (по возможности)
 - 
 
@@ -20,3 +24,6 @@
 - [ ] Локально собралось и поднялось через `docker compose`
 - [ ] CI зелёный: lint, tests, smoke
 - [ ] Для прод‑изменений: создан бэкап БД (при необходимости) и описана процедура проверки
+ - [ ] Секреты в GitHub Actions: `SSH_HOST`, `SSH_USER`, `SSH_KEY`, `APP_DIR` (опц. `SSH_PORT`, `DEPLOY_PRUNE`)
+ - [ ] В Actions прошли `tests` и выполнился `deploy` только после тестов
+ - [ ] После деплоя `/readyz` возвращает 200; проверены логи `web`/`nginx` (и `celery-*` при наличии)
