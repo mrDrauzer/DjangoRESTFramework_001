@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "Develop","develop", "main", "master" ]
   pull_request:
-    branches: [ "develop" ]
+    branches: [ "Develop","develop" ]
 
 jobs:
   lint:
