@@ -5,7 +5,7 @@ on:
     branches: [ "Develop","develop", "main", "master" ]
     tags: [ 'v*.*.*' ]
   pull_request:
-    branches: [ "develop" ]
+    branches: [ "Develop","develop" ]
 
 env:
   REGISTRY: ${{ secrets.REGISTRY }}
