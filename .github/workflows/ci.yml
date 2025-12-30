@@ -204,6 +204,14 @@ jobs:
         run: |
           ssh -p "${SSH_PORT:-22}" ${SSH_USER}@${SSH_HOST} << 'EOF'
           set -euo pipefail
+          # Inject GitHub Actions env values into the remote shell context
+          # Note: we use GitHub expressions here, they will be substituted on the runner side
+          APP_DIR="${{ env.APP_DIR }}"
+          DEPLOY_PRUNE="${{ env.DEPLOY_PRUNE }}"
+          if [ -z "${APP_DIR}" ]; then
+            echo "ERROR: APP_DIR is empty (not provided as GitHub Secret env)" >&2
+            exit 1
+          fi
           cd "${APP_DIR}"
           # Ensure .env exists on server (should be provisioned manually beforehand)
           if [ ! -f .env ]; then
