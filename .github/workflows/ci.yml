@@ -147,7 +147,8 @@ jobs:
     name: Deploy to remote server (Docker Compose)
     runs-on: ubuntu-latest
     needs: [tests]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/develop')
+    # Trigger deploy only on direct pushes to Develop/develop
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/Develop') || startsWith(github.ref, 'refs/heads/develop'))
     env:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
