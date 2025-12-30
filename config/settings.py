@@ -143,6 +143,19 @@ if DB_ENGINE == 'postgres':
         # Use instrumented backend to export DB metrics
         db_engine_path = 'django_prometheus.db.backends.postgresql'
 
+    # Connection tuning: allow persistent connections and set connect timeout
+    try:
+        conn_max_age_env = os.environ.get('DB_CONN_MAX_AGE', '60')
+        CONN_MAX_AGE = int(conn_max_age_env) if str(conn_max_age_env).isdigit() else 60
+    except Exception:
+        CONN_MAX_AGE = 60
+
+    try:
+        connect_timeout_env = os.environ.get('DB_CONNECT_TIMEOUT', '5')
+        CONNECT_TIMEOUT = int(connect_timeout_env) if str(connect_timeout_env).isdigit() else 5
+    except Exception:
+        CONNECT_TIMEOUT = 5
+
     DATABASES = {
         'default': {
             'ENGINE': db_engine_path,
@@ -151,6 +164,10 @@ if DB_ENGINE == 'postgres':
             'PASSWORD': pg_password,
             'HOST': pg_host,
             'PORT': pg_port,
+            'CONN_MAX_AGE': CONN_MAX_AGE,
+            'OPTIONS': {
+                'connect_timeout': CONNECT_TIMEOUT,
+            },
         }
     }
 else:
