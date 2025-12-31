@@ -90,14 +90,14 @@ class PaymentCreateSerializer(serializers.Serializer):
         if course_id:
             try:
                 course = Course.objects.get(id=course_id)
-            except Course.DoesNotExist:
-                raise serializers.ValidationError('Указанный курс не найден.')
+            except Course.DoesNotExist as err:
+                raise serializers.ValidationError('Указанный курс не найден.') from err
             attrs['course'] = course
         if lesson_id:
             try:
                 lesson = Lesson.objects.get(id=lesson_id)
-            except Lesson.DoesNotExist:
-                raise serializers.ValidationError('Указанный урок не найден.')
+            except Lesson.DoesNotExist as err:
+                raise serializers.ValidationError('Указанный урок не найден.') from err
             attrs['lesson'] = lesson
         amount = attrs.get('amount')
         if amount is None or amount <= 0:

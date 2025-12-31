@@ -150,9 +150,10 @@ if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # Expose Prometheus metrics if enabled
+import logging as _logging  # local alias to avoid polluting global namespace
 try:
     if 'django_prometheus' in settings.INSTALLED_APPS:
         urlpatterns += [path('', include('django_prometheus.urls'))]
-except Exception:
-    # If django_prometheus isn't installed, just skip adding metrics URLs
-    pass
+except Exception as err:  # nosec B110 - intentionally handled: optional dependency
+    # If django_prometheus isn't installed, just skip adding metrics URLs but log the reason
+    _logging.getLogger(__name__).debug('Prometheus URLs not added: %s', err)

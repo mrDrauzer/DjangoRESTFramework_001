@@ -1,4 +1,6 @@
-Django>=4.2,<5.1
+# Pin to a secure Django release to satisfy security audits (pip-audit/Bandit)
+# Django 5.2.8 includes fixes for recent CVEs
+Django>=5.2.8,<5.3
 djangorestframework>=3.14,<3.16
 Pillow>=10.0
 drf-spectacular>=0.27,<0.28

@@ -32,9 +32,9 @@ def _validate_image_file(file_obj):
                 raise serializers.ValidationError(
                     f"Недопустимый формат изображения: {img.format}. Разрешены: {', '.join(sorted(ALLOWED_IMAGE_FORMATS))}")
         file_obj.seek(pos)
-    except Exception:
+    except Exception as err:
         # Если не удалось открыть как изображение
-        raise serializers.ValidationError("Файл не является валидным изображением или повреждён")
+        raise serializers.ValidationError("Файл не является валидным изображением или повреждён") from err
     return file_obj
 
 

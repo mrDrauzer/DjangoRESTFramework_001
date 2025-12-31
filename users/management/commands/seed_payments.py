@@ -14,14 +14,22 @@ class Command(BaseCommand):
 
         user = User.objects.order_by('id').first()
         if not user:
-            self.stdout.write(self.style.ERROR('Нет пользователей. Создайте хотя бы одного пользователя.'))
+            self.stdout.write(
+                self.style.ERROR(
+                    'Нет пользователей. Создайте хотя бы одного пользователя.'
+                )
+            )
             return
 
         course = Course.objects.order_by('id').first()
         lesson = Lesson.objects.order_by('id').first()
 
         if not course and not lesson:
-            self.stdout.write(self.style.ERROR('Нет данных курсов/уроков. Создайте хотя бы один курс или урок.'))
+            self.stdout.write(
+                self.style.ERROR(
+                    'Нет данных курсов/уроков. Создайте хотя бы один курс или урок.'
+                )
+            )
             return
 
         created = 0
