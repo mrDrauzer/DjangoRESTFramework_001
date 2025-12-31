@@ -23,7 +23,10 @@ def _wrap_stripe_errors(func):
         except stripe.error.AuthenticationError as e:
             raise StripeServiceError('Stripe authentication failed: invalid API key.') from e
         except stripe.error.InvalidRequestError as e:
-            raise StripeServiceError(f'Stripe invalid request: {getattr(e, "user_message", str(e))}') from e
+            msg = getattr(e, "user_message", str(e))
+            raise StripeServiceError(
+                f'Stripe invalid request: {msg}'
+            ) from e
         except stripe.error.RateLimitError as e:
             raise StripeServiceError('Stripe rate limit exceeded, try again later.') from e
         except stripe.error.APIConnectionError as e:
@@ -31,7 +34,9 @@ def _wrap_stripe_errors(func):
         except stripe.error.APIError as e:
             raise StripeServiceError('Stripe API error, please try again.') from e
         except Exception as e:
-            raise StripeServiceError(f'Unexpected Stripe error: {str(e)}') from e
+            raise StripeServiceError(
+                f'Unexpected Stripe error: {str(e)}'
+            ) from e
     return wrapper
 
 
@@ -55,8 +60,13 @@ def create_price(product_id: str, amount: Decimal, currency: str | None = None) 
 
 
 @_wrap_stripe_errors
-def create_checkout_session(price_id: str, quantity: int = 1, success_url: str | None = None,
-                            cancel_url: str | None = None, mode: str = 'payment') -> Dict[str, Any]:
+def create_checkout_session(
+    price_id: str,
+    quantity: int = 1,
+    success_url: str | None = None,
+    cancel_url: str | None = None,
+    mode: str = 'payment',
+) -> Dict[str, Any]:
     _init_stripe()
     site = settings.SITE_URL.rstrip('/')
     success = success_url or f"{site}/payments/success"

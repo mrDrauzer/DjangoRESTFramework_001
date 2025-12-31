@@ -178,7 +178,10 @@ class PaymentStatusAPIView(generics.RetrieveAPIView):
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         if not payment.stripe_session_id:
-            return Response({'detail': 'Для данного платежа не создана Stripe сессия.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'detail': 'Для данного платежа не создана Stripe сессия.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             session = stripe_service.retrieve_session(payment.stripe_session_id)

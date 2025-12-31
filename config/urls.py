@@ -1,3 +1,4 @@
+import logging as _logging  # local alias to avoid polluting global namespace
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
@@ -153,6 +154,6 @@ if settings.DEBUG:
 try:
     if 'django_prometheus' in settings.INSTALLED_APPS:
         urlpatterns += [path('', include('django_prometheus.urls'))]
-except Exception:
-    # If django_prometheus isn't installed, just skip adding metrics URLs
-    pass
+except Exception as err:  # nosec B110 - intentionally handled: optional dependency
+    # If django_prometheus isn't installed, just skip adding metrics URLs but log the reason
+    _logging.getLogger(__name__).debug('Prometheus URLs not added: %s', err)

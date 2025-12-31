@@ -32,8 +32,8 @@ class YouTubeURLValidator:
 
         try:
             parsed = urlparse(value)
-        except Exception:
-            raise serializers.ValidationError("Некорректная ссылка")
+        except Exception as err:
+            raise serializers.ValidationError("Некорректная ссылка") from err
 
         host = (parsed.hostname or '').lower()
 

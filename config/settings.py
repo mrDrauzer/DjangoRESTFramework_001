@@ -1,4 +1,5 @@
 import os
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -443,6 +444,6 @@ if SENTRY_DSN:
             environment=os.environ.get('SENTRY_ENVIRONMENT', 'development' if DEBUG else 'production'),
             release=os.environ.get('SENTRY_RELEASE'),
         )
-    except Exception:
-        # If Sentry is not installed or fails to init, continue without it
-        pass
+    except Exception as err:
+        # If Sentry is not installed or fails to init, continue without it but log cause
+        logging.getLogger(__name__).warning("Sentry init failed: %s", err)

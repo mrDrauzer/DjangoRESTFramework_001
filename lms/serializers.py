@@ -22,7 +22,11 @@ def _validate_image_file(file_obj):
     ext = os.path.splitext(name)[1].lower()
     if ext and ext not in ALLOWED_IMAGE_EXTS:
         raise serializers.ValidationError(
-            f"Недопустимый формат файла: {ext}. Разрешены: {', '.join(sorted(ALLOWED_IMAGE_EXTS))}")
+            (
+                f"Недопустимый формат файла: {ext}. "
+                f"Разрешены: {', '.join(sorted(ALLOWED_IMAGE_EXTS))}"
+            )
+        )
     # Валидация содержимого через Pillow
     try:
         # Важно: сохранить позицию курсора для корректного последующего чтения
@@ -30,11 +34,15 @@ def _validate_image_file(file_obj):
         with Image.open(file_obj) as img:
             if img.format not in ALLOWED_IMAGE_FORMATS:
                 raise serializers.ValidationError(
-                    f"Недопустимый формат изображения: {img.format}. Разрешены: {', '.join(sorted(ALLOWED_IMAGE_FORMATS))}")
+                    (
+                        f"Недопустимый формат изображения: {img.format}. "
+                        f"Разрешены: {', '.join(sorted(ALLOWED_IMAGE_FORMATS))}"
+                    )
+                )
         file_obj.seek(pos)
-    except Exception:
+    except Exception as err:
         # Если не удалось открыть как изображение
-        raise serializers.ValidationError("Файл не является валидным изображением или повреждён")
+        raise serializers.ValidationError("Файл не является валидным изображением или повреждён") from err
     return file_obj
 
 
