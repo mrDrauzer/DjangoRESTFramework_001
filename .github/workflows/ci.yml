@@ -25,6 +25,8 @@ jobs:
         run: ruff check . --fix
       - name: Run isort (auto-fix imports)
         run: isort --profile black .
+      - name: Run black (auto-fix)
+        run: black .
       - name: Run black --check
         run: black --check .
 
