@@ -1,3 +1,4 @@
+import logging as _logging  # local alias to avoid polluting global namespace
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
@@ -150,7 +151,6 @@ if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # Expose Prometheus metrics if enabled
-import logging as _logging  # local alias to avoid polluting global namespace
 try:
     if 'django_prometheus' in settings.INSTALLED_APPS:
         urlpatterns += [path('', include('django_prometheus.urls'))]

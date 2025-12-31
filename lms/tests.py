@@ -72,7 +72,7 @@ class CourseLessonPermissionsTests(APITestCase):
         # list — только свои
         list_resp = self.client.get(self.lesson_list_url)
         self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
-        ids = [l['id'] for l in list_resp.data['results']]
+        ids = [item['id'] for item in list_resp.data['results']]
         self.assertIn(self.lesson_user1.id, ids)
         self.assertNotIn(self.lesson_user2.id, ids)
 
@@ -123,7 +123,7 @@ class CourseLessonPermissionsTests(APITestCase):
         # list — видит все
         resp_list = self.client.get(self.lesson_list_url)
         self.assertEqual(resp_list.status_code, status.HTTP_200_OK)
-        ids = {l['id'] for l in resp_list.data['results']}
+        ids = {item['id'] for item in resp_list.data['results']}
         self.assertTrue({self.lesson_user1.id, self.lesson_user2.id}.issubset(ids))
 
         # create — запрещено
