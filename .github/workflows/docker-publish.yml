@@ -107,7 +107,8 @@ jobs:
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sbom-cyclonedx
+          # ensure unique artifact name to avoid 409 Conflict on re-runs
+          name: sbom-cyclonedx-${{ github.run_id }}-${{ github.run_attempt }}
           path: sbom-cyclonedx.json
           if-no-files-found: error
 
